@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>EVM Snapshot – PV / EV / AC</title>
+<style>
+  :root{
+    --bg:#0f172a;           /* slate-900 */
+    --panel:#111827;        /* gray-900 */
+    --muted:#334155;        /* slate-600 */
+    --text:#e5e7eb;         /* gray-200 */
+    --text-soft:#cbd5e1;    /* slate-300 */
+    --good:#16a34a;         /* green-600 */
+    --warn:#d97706;         /* amber-600 */
+    --bad:#dc2626;          /* red-600 */
+    --info:#2563eb;         /* blue-600 */
+    --accent:#22d3ee;       /* cyan-400 */
+    --chip:#1f2937;         /* gray-800 */
+    --border:#1f2937;       /* gray-800 */
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+    background: linear-gradient(180deg, #0b1221 0%, #0f172a 40%);
+    color:var(--text);
+  }
+  header{
+    padding:20px 16px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    position:sticky; top:0; backdrop-filter: blur(6px);
+    background: rgba(15,23,42,0.85);
+  }
+  header h1{ margin:0; font-size:18px; font-weight:700; letter-spacing:.3px; }
+  header .sub{ color:var(--text-soft); font-weight:500; opacity:.8 }
+  main{ max-width:1200px; margin:18px auto 80px; padding:0 16px; }
+
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px; }
+  .grid{ display:grid; gap:14px; }
+  .grid-2{ grid-template-columns: 1fr 1fr; }
+  @media (max-width: 980px){ .grid-2{ grid-template-columns: 1fr; } }
+
+  /* Controls */
+  .controls{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .btn{
+    background:#0ea5e9; color:#001018; border:none; padding:8px 12px; border-radius:10px; font-weight:700;
+    cursor:pointer; transition:transform .08s ease, filter .15s ease; box-shadow: inset 0 -2px 0 rgba(0,0,0,.15);
+  }
+  .btn:hover{ filter:brightness(1.05) }
+  .btn:active{ transform:translateY(1px) }
+  .btn.sec{ background:#374151; color:var(--text) }
+  .btn.warn{ background:var(--warn); color:#1b1205 }
+  input[type="file"]{ display:none }
+  label.file{ border:1px dashed var(--muted); color:var(--text-soft); padding:7px 10px; border-radius:10px; cursor:pointer; }
+  .note{ color:var(--text-soft); opacity:.85 }
+
+  /* Table */
+  table{ width:100%; border-collapse:separate; border-spacing:0 8px; }
+  thead th{
+    text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-soft); padding:0 10px;
+  }
+  tbody td{ background:#0b1221; border:1px solid var(--border); padding:8px 10px; vertical-align:middle; }
+  tbody tr td:first-child{ border-radius:8px 0 0 8px }
+  tbody tr td:last-child{ border-radius:0 8px 8px 0 }
+  .row-actions{ display:flex; gap:6px; justify-content:center }
+  .del{ background:#1f2937; border:1px solid #293241; color:#94a3b8; padding:6px 9px; border-radius:8px; cursor:pointer }
+  .del:hover{ color:#e2e8f0; border-color:#334155 }
+
+  input.cell{
+    width:100%; background:#0a1326; border:1px solid #1f2a44; color:var(--text);
+    padding:8px 10px; border-radius:8px; outline:none;
+  }
+  input.cell:focus{ border-color:#3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.2); }
+
+  /* Metrics */
+  .metrics{ display:grid; grid-template-columns: repeat(6, 1fr); gap:10px; }
+  @media (max-width: 1100px){ .metrics{ grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 640px){ .metrics{ grid-template-columns: repeat(2, 1fr); } }
+  .metric{
+    background:#0b1221; border:1px solid var(--border); border-radius:12px; padding:10px 12px;
+  }
+  .metric .k{ font-size:12px; color:var(--text-soft); text-transform:uppercase; letter-spacing:.08em }
+  .metric .v{ font-size:20px; font-weight:800; margin-top:6px }
+  .metric .chip{ display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; margin-top:6px; background:var(--chip); border:1px solid var(--border) }
+  .ok{ color:var(--good) } .bad{ color:var(--bad) } .warnc{ color:var(--warn) } .info{ color:var(--info) }
+
+  /* Bars */
+  .bars{ display:grid; grid-template-columns: 1fr; gap:10px }
+  .bar{
+    background:#0b1221; border:1px solid var(--border); border-radius:12px; padding:12px;
+  }
+  .bar h3{ margin:0 0 10px 0; font-size:14px; color:var(--text-soft); text-transform:uppercase; letter-spacing:.08em }
+  .bar-track{ position:relative; height:16px; background:#0a1326; border:1px solid #1f2a44; border-radius:999px; overflow:hidden }
+  .fill{ position:absolute; left:0; top:0; bottom:0; width:0% }
+  .pv{ background:linear-gradient(90deg,#60a5fa,#2563eb) }
+  .ev{ background:linear-gradient(90deg,#34d399,#059669) }
+  .ac{ background:linear-gradient(90deg,#fda4af,#dc2626) }
+  .bar-foot{ display:flex; justify-content:space-between; font-size:12px; color:var(--text-soft); margin-top:8px }
+  .formula{ color:var(--text-soft); font-size:12px; }
+
+  footer{ color:#93a2b8; font-size:12px; margin-top:14px }
+  .right{ text-align:right }
+  .hidden{ display:none }
+</style>
+</head>
+<body>
+  <header>
+    <h1>EVM Snapshot</h1>
+    <div class="sub">PV vs EV vs AC with live variances</div>
+  </header>
+
+  <main class="grid">
+    <section class="panel grid">
+      <div class="controls">
+        <button class="btn" id="addRowBtn">+ Add task</button>
+        <button class="btn sec" id="demoBtn">Load demo</button>
+        <label class="file" for="csvFile">Import CSV</label>
+        <input id="csvFile" type="file" accept=".csv" />
+        <button class="btn sec" id="exportCsvBtn">Export CSV</button>
+        <button class="btn sec" id="saveBtn">Save to browser</button>
+        <button class="btn warn" id="clearBtn">Clear all</button>
+        <span class="note">Columns: Task | BAC | Planned % | Actual % | AC</span>
+      </div>
+
+      <div class="panel">
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th class="right">BAC ($)</th>
+              <th class="right">Planned %</th>
+              <th class="right">Actual %</th>
+              <th class="right">AC ($)</th>
+              <th style="width:64px">•</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <!-- rows injected -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid grid-2">
+      <div class="panel">
+        <div class="metrics" id="metrics">
+          <div class="metric">
+            <div class="k">BAC (Total)</div>
+            <div class="v" id="m-bac">$0</div>
+          </div>
+          <div class="metric">
+            <div class="k">PV</div>
+            <div class="v" id="m-pv">$0</div>
+            <div class="chip formula">PV = Σ(BAC × Planned%)</div>
+          </div>
+          <div class="metric">
+            <div class="k">EV</div>
+            <div class="v" id="m-ev">$0</div>
+            <div class="chip formula">EV = Σ(BAC × Actual%)</div>
+          </div>
+          <div class="metric">
+            <div class="k">AC</div>
+            <div class="v" id="m-ac">$0</div>
+            <div class="chip formula">AC = Σ(Actual Cost)</div>
+          </div>
+          <div class="metric">
+            <div class="k">% Complete (Work)</div>
+            <div class="v" id="m-work">—</div>
+            <div class="chip formula">EV ÷ BAC</div>
+          </div>
+          <div class="metric">
+            <div class="k">% Complete (Cost)</div>
+            <div class="v" id="m-cost">—</div>
+            <div class="chip formula">AC ÷ BAC</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="metrics">
+          <div class="metric">
+            <div class="k">Schedule Variance (SV)</div>
+            <div class="v" id="m-sv">$0</div>
+            <div class="chip formula">SV = EV − PV</div>
+          </div>
+          <div class="metric">
+            <div class="k">Cost Variance (CV)</div>
+            <div class="v" id="m-cv">$0</div>
+            <div class="chip formula">CV = EV − AC</div>
+          </div>
+          <div class="metric">
+            <div class="k">SPI</div>
+            <div class="v" id="m-spi">—</div>
+            <div class="chip formula">EV ÷ PV</div>
+          </div>
+          <div class="metric">
+            <div class="k">CPI</div>
+            <div class="v" id="m-cpi">—</div>
+            <div class="chip formula">EV ÷ AC</div>
+          </div>
+          <div class="metric">
+            <div class="k">EAC (simple)</div>
+            <div class="v" id="m-eac">—</div>
+            <div class="chip formula">BAC ÷ CPI</div>
+          </div>
+          <div class="metric">
+            <div class="k">VAC</div>
+            <div class="v" id="m-vac">—</div>
+            <div class="chip formula">BAC − EAC</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid grid-2">
+      <div class="panel bars">
+        <div class="bar">
+          <h3>Planned Value (PV)</h3>
+          <div class="bar-track"><div class="fill pv" id="bar-pv"></div></div>
+          <div class="bar-foot">
+            <div id="pv-label">0% of BAC</div>
+            <div id="pv-abs">$0</div>
+          </div>
+        </div>
+        <div class="bar">
+          <h3>Earned Value (EV)</h3>
+          <div class="bar-track"><div class="fill ev" id="bar-ev"></div></div>
+          <div class="bar-foot">
+            <div id="ev-label">0% of BAC</div>
+            <div id="ev-abs">$0</div>
+          </div>
+        </div>
+        <div class="bar">
+          <h3>Actual Cost (AC)</h3>
+          <div class="bar-track"><div class="fill ac" id="bar-ac"></div></div>
+          <div class="bar-foot">
+            <div id="ac-label">0% of BAC</div>
+            <div id="ac-abs">$0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <strong>How to read this:</strong>
+        <p class="formula">
+          • If <b class="ok">SPI &gt; 1</b>, you’re ahead of schedule; <b class="bad">SPI &lt; 1</b> means behind.<br/>
+          • If <b class="ok">CPI &gt; 1</b>, you’re under budget; <b class="bad">CPI &lt; 1</b> means over.<br/>
+          • % Complete (Work) uses <b>EV</b> (budgeted value delivered). % Complete (Cost) uses <b>AC</b> (cash spent).
+        </p>
+        <p class="note">
+          EAC here uses the simple formula <i>EAC = BAC / CPI</i>. In practice you may prefer
+          alternatives (e.g., atypical/typical variance, or schedule‑aware blends). This UI keeps it simple and transparent.
+        </p>
+      </div>
+    </section>
+
+    <footer class="panel">
+      Formulas implemented: PV = Σ(BAC × Planned%), EV = Σ(BAC × Actual%), AC = Σ(AC). Variances: SV = EV − PV, CV = EV − AC.
+      Indices: SPI = EV ÷ PV, CPI = EV ÷ AC. %Complete(work) = EV ÷ BAC; %Complete(cost) = AC ÷ BAC.
+    </footer>
+  </main>
+
+<script>
+(function(){
+  const tbody = document.getElementById('tbody');
+  const addRowBtn = document.getElementById('addRowBtn');
+  const demoBtn = document.getElementById('demoBtn');
+  const csvInput = document.getElementById('csvFile');
+  const exportCsvBtn = document.getElementById('exportCsvBtn');
+  const saveBtn = document.getElementById('saveBtn');
+  const clearBtn = document.getElementById('clearBtn');
+
+  const fmtMoney = n => isFinite(n) ? n.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0}) : '—';
+  const fmtPct = n => isFinite(n) ? (n*100).toFixed(1).replace(/\.0$/,'')+'%' : '—';
+
+  const dom = {
+    bac: document.getElementById('m-bac'),
+    pv: document.getElementById('m-pv'),
+    ev: document.getElementById('m-ev'),
+    ac: document.getElementById('m-ac'),
+    work: document.getElementById('m-work'),
+    cost: document.getElementById('m-cost'),
+    sv: document.getElementById('m-sv'),
+    cv: document.getElementById('m-cv'),
+    spi: document.getElementById('m-spi'),
+    cpi: document.getElementById('m-cpi'),
+    eac: document.getElementById('m-eac'),
+    vac: document.getElementById('m-vac'),
+    barPV: document.getElementById('bar-pv'),
+    barEV: document.getElementById('bar-ev'),
+    barAC: document.getElementById('bar-ac'),
+    pvLabel: document.getElementById('pv-label'),
+    evLabel: document.getElementById('ev-label'),
+    acLabel: document.getElementById('ac-label'),
+    pvAbs: document.getElementById('pv-abs'),
+    evAbs: document.getElementById('ev-abs'),
+    acAbs: document.getElementById('ac-abs')
+  };
+
+  function clamp01(x){ return Math.min(1, Math.max(0, x)); }
+
+  // Accepts "45", "45%", "0.45" → fraction 0..1
+  function parsePercent(input){
+    if (input == null) return 0;
+    let s = String(input).trim().replace(/,/g,'');
+    if (!s) return 0;
+    if (s.endsWith('%')) s = s.slice(0,-1);
+    let val = parseFloat(s);
+    if (!isFinite(val)) return 0;
+    if (val > 1) val = val / 100;
+    return clamp01(val);
+  }
+  // Dollars (allow commas)
+  function parseMoney(input){
+    if (input == null) return 0;
+    const s = String(input).replace(/[^0-9.\-]/g,'');
+    const v = parseFloat(s);
+    return isFinite(v) ? v : 0;
+  }
+
+  function makeCell(placeholder=''){
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'cell';
+    inp.placeholder = placeholder;
+    inp.autocomplete = 'off';
+    inp.inputMode = 'decimal';
+    return inp;
+  }
+
+  function addRow(data={}){
+    const tr = document.createElement('tr');
+
+    const tdName = document.createElement('td');
+    const tdBAC  = document.createElement('td');
+    const tdPln  = document.createElement('td');
+    const tdAct  = document.createElement('td');
+    const tdAC   = document.createElement('td');
+    const tdDel  = document.createElement('td');
+
+    const name = makeCell('Task name'); name.value = data.name || '';
+    const bac  = makeCell('e.g. 250000'); bac.value = data.bac ?? '';
+    const pln  = makeCell('e.g. 35%'); pln.value = data.planned ?? '';
+    const act  = makeCell('e.g. 28%'); act.value = data.actual ?? '';
+    const ac   = makeCell('e.g. 72000'); ac.value = data.ac ?? '';
+
+    [name,bac,pln,act,ac].forEach(inp => inp.addEventListener('input', recalc));
+
+    tdName.appendChild(name);
+    tdBAC.appendChild(bac); tdBAC.className = 'right';
+    tdPln.appendChild(pln); tdPln.className = 'right';
+    tdAct.appendChild(act); tdAct.className = 'right';
+    tdAC.appendChild(ac);   tdAC.className = 'right';
+
+    const del = document.createElement('button');
+    del.className = 'del'; del.textContent = 'Delete';
+    del.addEventListener('click', ()=>{ tr.remove(); recalc(); });
+
+    tdDel.className = 'row-actions';
+    tdDel.appendChild(del);
+
+    tr.append(tdName, tdBAC, tdPln, tdAct, tdAC, tdDel);
+    tbody.appendChild(tr);
+  }
+
+  function readRows(){
+    const rows = [];
+    [...tbody.children].forEach(tr=>{
+      const [name, bac, pln, act, ac] = [...tr.querySelectorAll('input.cell')].map(i => i.value);
+      rows.push({
+        name: name?.trim() || '',
+        bac: parseMoney(bac),
+        planned: parsePercent(pln),
+        actual: parsePercent(act),
+        ac: parseMoney(ac)
+      });
+    });
+    return rows;
+  }
+
+  function recalc(){
+    const rows = readRows();
+    // totals
+    const BAC = rows.reduce((s,r)=> s + r.bac, 0);
+    const PV  = rows.reduce((s,r)=> s + r.bac * r.planned, 0);
+    const EV  = rows.reduce((s,r)=> s + r.bac * r.actual, 0);
+    const AC  = rows.reduce((s,r)=> s + r.ac, 0);
+
+    const workPct = BAC>0 ? EV / BAC : NaN;
+    const costPct = BAC>0 ? AC / BAC : NaN;
+
+    const SV = EV - PV;
+    const CV = EV - AC;
+    const SPI = PV>0 ? EV / PV : NaN;
+    const CPI = AC>0 ? EV / AC : NaN;
+    const EAC = (CPI>0 && isFinite(CPI) && BAC>0) ? (BAC / CPI) : NaN;
+    const VAC = isFinite(EAC) ? (BAC - EAC) : NaN;
+
+    // write numbers
+    dom.bac.textContent = fmtMoney(BAC);
+    dom.pv.textContent  = fmtMoney(PV);
+    dom.ev.textContent  = fmtMoney(EV);
+    dom.ac.textContent  = fmtMoney(AC);
+
+    dom.work.textContent = fmtPct(workPct);
+    dom.cost.textContent = fmtPct(costPct);
+
+    setVariance(dom.sv, SV, '$');
+    setVariance(dom.cv, CV, '$');
+    setIndex(dom.spi, SPI);
+    setIndex(dom.cpi, CPI);
+    dom.eac.textContent = isFinite(EAC) ? fmtMoney(EAC) : '—';
+    dom.vac.textContent = isFinite(VAC) ? fmtMoney(VAC) : '—';
+
+    // bars vs BAC
+    const pctPV = BAC>0 ? (PV / BAC)*100 : 0;
+    const pctEV = BAC>0 ? (EV / BAC)*100 : 0;
+    const pctAC = BAC>0 ? (AC / BAC)*100 : 0;
+
+    setBar(dom.barPV, pctPV);
+    setBar(dom.barEV, pctEV);
+    setBar(dom.barAC, pctAC);
+
+    dom.pvLabel.textContent = isFinite(pctPV) ? `${pctPV.toFixed(1).replace(/\.0$/,'')}% of BAC` : '—';
+    dom.evLabel.textContent = isFinite(pctEV) ? `${pctEV.toFixed(1).replace(/\.0$/,'')}% of BAC` : '—';
+    dom.acLabel.textContent = isFinite(pctAC) ? `${pctAC.toFixed(1).replace(/\.0$/,'')}% of BAC` : '—';
+
+    dom.pvAbs.textContent = fmtMoney(PV);
+    dom.evAbs.textContent = fmtMoney(EV);
+    dom.acAbs.textContent = fmtMoney(AC);
+
+    // persist a lightweight copy
+    const simple = readRows().map(r=>({name:r.name,bac:r.bac,planned:r.planned,actual:r.actual,ac:r.ac}));
+    localStorage.setItem('evm_rows_v1', JSON.stringify(simple));
+  }
+
+  function setBar(el, pct){
+    const w = Math.max(0, Math.min(100, pct||0));
+    el.style.width = w+'%';
+  }
+
+  function setVariance(el, val, unit='$'){
+    const v = isFinite(val) ? (unit==='%'? (val*100): val) : NaN;
+    el.textContent = unit==='%' ? (isFinite(v)? v.toFixed(1)+'%':'—') : fmtMoney(v);
+    colorize(el, val);
+  }
+  function setIndex(el, idx){
+    if (!isFinite(idx)) { el.textContent='—'; el.classList.remove('ok','bad','warnc'); return; }
+    el.textContent = idx.toFixed(2);
+    el.classList.remove('ok','bad','warnc');
+    if (idx>1.0) el.classList.add('ok');
+    else if (idx<1.0) el.classList.add('bad');
+    else el.classList.add('warnc');
+  }
+  function colorize(el, val){
+    el.classList.remove('ok','bad','warnc');
+    if (!isFinite(val)) return;
+    if (val>0) el.classList.add('ok');
+    else if (val<0) el.classList.add('bad');
+    else el.classList.add('warnc');
+  }
+
+  function exportCSV(){
+    const rows = readRows();
+    const header = ['Task','BAC','Planned%','Actual%','AC'];
+    const lines = [header.join(',')];
+    rows.forEach(r=>{
+      lines.push([
+        csvEsc(r.name),
+        r.bac,
+        (r.planned*100).toFixed(2)+'%',
+        (r.actual*100).toFixed(2)+'%',
+        r.ac
+      ].join(','));
+    });
+    download('evm_export.csv', lines.join('\n'), 'text/csv;charset=utf-8;');
+  }
+  function csvEsc(s){ if (s==null) return ''; const needs = /[",\n]/.test(s); return needs?('"'+s.replace(/"/g,'""')+'"'):s; }
+  function download(filename, content, type){
+    const blob = new Blob([content],{type});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function importCSV(file){
+    const reader = new FileReader();
+    reader.onload = e=>{
+      const text = e.target.result;
+      const lines = text.replace(/\r/g,'').split('\n').filter(Boolean);
+      if (!lines.length) return;
+      // crude CSV parser for simple files
+      function splitCSV(line){
+        const out=[]; let cur=''; let inQ=false;
+        for (let i=0;i<line.length;i++){
+          const ch=line[i];
+          if (ch==='"' ){ if (inQ && line[i+1]==='"'){ cur+='"'; i++; } else inQ=!inQ; }
+          else if (ch===',' && !inQ){ out.push(cur); cur=''; }
+          else cur+=ch;
+        }
+        out.push(cur);
+        return out;
+      }
+      let start = 0;
+      const header = splitCSV(lines[0]).map(s=>s.trim().toLowerCase());
+      const looksHeader = header.includes('task') || header.includes('bac');
+      if (looksHeader) start = 1;
+
+      // clear
+      tbody.innerHTML='';
+      for (let r=start; r<lines.length; r++){
+        const cols = splitCSV(lines[r]);
+        const [name,bac,pln,act,ac] = cols;
+        addRow({
+          name: name||'',
+          bac:  bac||'',
+          planned: pln||'',
+          actual: act||'',
+          ac: ac||''
+        });
+      }
+      recalc();
+    };
+    reader.readAsText(file);
+  }
+
+  function loadSaved(){
+    const saved = localStorage.getItem('evm_rows_v1');
+    if (!saved) return false;
+    try{
+      const rows = JSON.parse(saved);
+      if (!Array.isArray(rows)) return false;
+      tbody.innerHTML='';
+      rows.forEach(r=>{
+        addRow({
+          name: r.name || '',
+          bac: String(r.bac ?? ''),
+          planned: isFinite(r.planned)? (r.planned*100).toFixed(2)+'%':'',
+          actual: isFinite(r.actual)? (r.actual*100).toFixed(2)+'%':'',
+          ac: String(r.ac ?? '')
+        });
+      });
+      recalc();
+      return true;
+    }catch(e){ return false; }
+  }
+
+  function loadDemo(){
+    tbody.innerHTML='';
+    [
+      {name:'Sitework & Utilities', bac: 200000, planned:'40%', actual:'30%', ac: 95000},
+      {name:'Building – Structural', bac: 500000, planned:'25%', actual:'20%', ac:120000},
+      {name:'MEP Rough‑in', bac: 300000, planned:'15%', actual:'10%', ac: 70000}
+    ].forEach(addRow);
+    recalc();
+  }
+
+  // events
+  addRowBtn.addEventListener('click', ()=>{ addRow({}); recalc(); });
+  demoBtn.addEventListener('click', loadDemo);
+  csvInput.addEventListener('change', e=>{ if (e.target.files?.[0]) importCSV(e.target.files[0]); e.target.value=''; });
+  exportCsvBtn.addEventListener('click', exportCSV);
+  saveBtn.addEventListener('click', ()=>{ recalc(); alert('Saved to this browser (localStorage).'); });
+  clearBtn.addEventListener('click', ()=>{
+    if (confirm('Clear all rows and metrics?')){ tbody.innerHTML=''; localStorage.removeItem('evm_rows_v1'); recalc(); }
+  });
+
+  // boot
+  if (!loadSaved()){
+    // start with one empty row
+    addRow({});
+    recalc();
+  }
+})();
+</script>
+</body>
+</html>
